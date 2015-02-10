@@ -1,25 +1,148 @@
 ---
 title: "Reproducible Research: Peer Assessment 1"
 output: 
-  html_document:
-    keep_md: true
+html_document:
+keep_md: true
 ---
 
+First, we change the local settings so that the English language will be used. This is necessary because of the names of days of the week, which we will need later:
+```{r, echo=TRUE, results='hide'}
+Sys.setlocale("LC_ALL", "English")
+```
 
 ## Loading and preprocessing the data
-
-
+First we unpack the zipped files and view the content:
+```{r, echo=TRUE}
+zipfile <- "./activity.zip"
+files <- unzip(zipfile, exdir = ".")
+files
+```
+The resulting file `r files` has the comma separated values and therefore we use the R command *read.csv* and see the structure and the first few lines of the data:
+```{r, echo=TRUE}
+data <- read.csv(files)
+str(data)
+head(data)
+```
+The column "date" in the resulting data frame is in the form of factor, so we transform it to the class Date and see the data structure again::
+```{r, echo=TRUE}
+data <- transform(data, date = as.Date(date, format = "%Y-%m-%d"))
+str(data)
+```
+We check the summary of the data:
+```{r, echo=TRUE}
+summary(data)
+```
+If we look at the values of the column "interval", we find that they represent the hours and minutes within a day i.e. they are written in the form "hhmm".
 
 ## What is mean total number of steps taken per day?
 
+First we calculate the total number of steps taken each day using the R function *aggregate* with the function *sum*:
+```{r, echo=TRUE}
+data.agg <- aggregate(steps ~ date, data = data, sum)
+```
+Then we present the summarized number of steps in the form of a histogram:
+```{r, echo=TRUE}
+hist(data.agg$steps, col="blue", main="Histogram of the total number of steps taken each day\n(with original missing values)", xlab="Steps", labels=TRUE, ylim = c(0, 40))
+dev.copy(png, file = "./figures/Figure1.png")     ## Copy plot to a PNG file
+dev.off()  ## Don't forget to close the PNG device!
+```
 
+and calculate the summary of the column steps:
+```{r, echo=TRUE}
+steps.sum <- summary(data.agg$steps)
+steps.sum
+```
+The mean of total number of steps taken per day is therefore `r format(steps.sum["Mean"], scientific=FALSE)` and the median is `r format(steps.sum["Median"], scientific=FALSE)`.
 
 ## What is the average daily activity pattern?
+We calculate the mean number of steps across all days for each 5-minute interval using the functions *aggregate* and *mean* and see the structure of the resulting data frame:   
+```{r, echo=TRUE}
+data.agg.5min <- aggregate(steps ~ interval, data = data, mean)
+str(data.agg.5min)
+```
+Then we plot the time series:
 
+```{r, echo=TRUE}
+plot(data.agg.5min$interval, data.agg.5min$steps, type = "l", col="red", main="Time series plot of the average number of steps taken as\na function of the 5-minute time interval", xlab="Interval", ylab="Steps")
+dev.copy(png, file = "./figures/Figure2.png")     ## Copy plot to a PNG file
+dev.off()  ## Don't forget to close the PNG device!
+```
 
+We search for a 5-minute interval, which contains the maximum number of steps, as follows:
+```{r, echo=TRUE}
+interval.max <- data.agg.5min$interval[which.max(data.agg.5min$steps)]
+```
+The 5-minute interval `r interval.max` (i.e. at `r paste0(floor(interval.max/100),":",interval.max%%100, " AM")`) contains the maximum number of steps, that is, `r round(max(data.agg.5min$steps),0)` steps.
 
 ## Imputing missing values
 
+We calculate the number of missing values in the dataset, as follows:
+```{r, echo=TRUE}
+missing <- sum(is.na(data$steps))
+```
 
+```{r echo=TRUE}
+tab.miss <- table(data[is.na(data$steps),c(1,2)], useNA = "ifany")
+tab.miss
+```
+
+The total number of missing values is `r missing`. We have `r length(tab.miss)` days where the data are completely missing. We choose a strategy to fill all the missing values in the dataset with the mean of each 5-minute interval. First we check if we have available the means for all intervals:
+```{r, echo=TRUE}
+miss.agg <- sum(is.na(data.agg.5min$steps))
+```
+
+The number of missing means is `r miss.agg`. All the means are therefore available. 
+
+```{r, echo=TRUE}
+data.filled <- merge(data,data.agg.5min, by = "interval", all = TRUE,
+                     suffixes = c("",".mean"))
+data.filled <- data.filled[ order(data.filled[,"date"], 
+                                  data.filled[,"interval"]), ]
+data.filled[is.na(data.filled$steps),"steps"] <- 
+        data.filled[is.na(data.filled$steps),"steps.mean"]
+```
+
+Check missing values again:
+```{r, echo=TRUE}
+sum(is.na(data.filled$steps))
+```
+There are no missing values. We aggregate the data in a similar manner as above and present them  in the form of a histogram:
+```{r, echo=TRUE}
+data.filled.agg <- aggregate(steps ~ date, data = data.filled, sum)
+hist(data.filled.agg$steps, col="green", main="Histogram of the total number of steps taken each day\n(with missing values filled)", xlab="Steps", labels=TRUE, ylim = c(0, 40))
+dev.copy(png, file = "./figures/Figure3.png")     ## Copy plot to a PNG file
+dev.off()  ## Don't forget to close the PNG device!
+```
+
+and calculate the their summary:
+```{r, echo=TRUE}
+steps.filled.sum <- summary(data.filled.agg$steps)
+steps.filled.sum
+```
+The mean of total number of steps taken per day is now `r format(steps.filled.sum["Mean"], scientific=FALSE)` and the median is `r format(steps.filled.sum["Median"], scientific=FALSE)`. The mean is the same as in the first case. The median is now equal to the mean (`r format(steps.filled.sum["Median"], scientific=FALSE)`) comparing to the median in the first case(`r format(steps.sum["Median"], scientific=FALSE)`). In this case, imputing the missing values adds `r length(tab.miss)` days of missing data in the highest column of the histogram.  
 
 ## Are there differences in activity patterns between weekdays and weekends?
+We create a new factor variable in the dataset with two levels – “weekday”
+and “weekend” indicating whether a given date is a weekday or weekend
+day:
+```{r, echo=TRUE}
+data.filled$typeday <- ifelse(weekdays(data.filled$date) %in% 
+c("Saturday","Sunday"), "weekend", "weekday")
+data.filled$typeday <- as.factor(data.filled$typeday)
+```
+
+We calculate the mean number of steps across all days for each 5-minute interval in the same way as in the first case, but we additionally group by weekday and weekend:    
+```{r, echo=TRUE}
+data.filled.agg.5min <- aggregate(steps ~ typeday + interval, data = data.filled, mean)
+str(data.filled.agg.5min)
+```
+Then we plot the time series:
+
+```{r echo=TRUE}
+library(lattice)
+xyplot(steps ~ interval | typeday, data.filled.agg.5min, type = "l", layout = c(1, 2),
+       xlab = "Interval", ylab = "Number of steps")
+dev.copy(png, file = "./figures/Figure4.png")     ## Copy plot to a PNG file
+dev.off()  ## Don't forget to close the PNG device!
+```
+
